@@ -1,0 +1,16 @@
+# Bağımlılık ve derleme çıktıları
+node_modules/
+dist/
+.vercel/
+
+# Yerel yedekler ve kurtarma verisi — kişisel içerik, depoya girmez
+_yedek/
+
+# Geliştirme araçları geçici çıktıları
+*.log
+.DS_Store
+
+# Supabase anahtarları buraya ELLE yazılırsa sızmasın diye:
+# js/config.js şablon olarak depoda durur (boş değerlerle).
+# Gerçek anahtarları config.local.js'e koyarsan o gitmez:
+js/config.local.js

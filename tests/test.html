@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>GDD Creator — Test</title>
+<style>
+  body{background:#0a0a0a;color:#e8e8e8;font:13px/1.6 ui-monospace,monospace;padding:20px;margin:0}
+  h1{font-size:16px;letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid #262626;padding-bottom:8px}
+  .ok{color:#3ddc84} .fail{color:#ff2d2d} .grp{color:#8a8a8a;margin-top:14px;text-transform:uppercase;letter-spacing:.1em;font-size:11px}
+  .row{padding:1px 0} .sum{margin-top:18px;padding-top:10px;border-top:1px solid #262626;font-size:14px}
+  table{border-collapse:collapse;margin-top:8px;font-size:12px}
+  td,th{border:1px solid #262626;padding:3px 8px;text-align:left}
+</style>
+</head>
+<body>
+<h1>GDD Creator — Regresyon Testleri</h1>
+<div id="out"></div>
+
+<script src="../js/config.js"></script>
+<script src="../js/cloud.js"></script>
+<script src="../js/schema.js"></script>
+<script src="../js/store.js"></script>
+<script src="../js/fields.js"></script>
+<script src="../js/export.js"></script>
+<script>
+/* Testler gerçek localStorage'ı KİRLETMEZ: başta yedekler, sonunda geri yükler. */
+const BACKUP = localStorage.getItem('gddcreator.projects.v1');
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+
+function grp(t) { const d = document.createElement('div'); d.className = 'grp'; d.textContent = t; out.appendChild(d); }
+function ok(name, cond, detay) {
+  const d = document.createElement('div');
+  d.className = 'row ' + (cond ? 'ok' : 'fail');
+  d.textContent = (cond ? '  ✓ ' : '  ✗ ') + name + (cond ? '' : '  → ' + (detay || ''));
+  out.appendChild(d);
+  cond ? pass++ : fail++;
+}
+
+function demoProje(genre, extras) {
+  const p = window.Store.create('Test ' + genre, genre, extras || []);
+  p.sections.forEach(s => s.questions.forEach(q => {
+    let v;
+    switch (q.type) {
+      case 'multi': v = (q.options || []).slice(0, 2); break;
+      case 'select': v = (q.options || [])[0]; break;
+      case 'tags': v = ['a', 'b']; break;
+      case 'list': v = ['madde 1', 'madde 2']; break;
+      case 'table': v = [(q.cols || ['x']).map((c, i) => 'h' + i), (q.cols || ['x']).map((c, i) => 'v' + i)]; break;
+      case 'number': v = 42; break;
+      case 'scale': v = 3; break;
+      default: v = 'Örnek metin\nikinci satır';
+    }
+    window.Store.setAnswer(p, s.id, q.id, v);
+  }));
+  window.Store.save(p);
+  return p;
+}
+
+/* ---------- 1. ŞEMA BÜTÜNLÜĞÜ ---------- */
+grp('Şema bütünlüğü');
+(() => {
+  const S = window.SCHEMA, tipler = ['text','textarea','select','multi','tags','number','scale','list','table'];
+  const sorun = [], secIds = new Set();
+  function denetle(sec, kaynak) {
+    if (!sec.id) sorun.push(kaynak + ': id yok');
+    if (!sec.title) sorun.push(kaynak + ': başlık yok');
+    if (secIds.has(sec.id)) sorun.push('TEKRAR bölüm id: ' + sec.id);
+    secIds.add(sec.id);
+    const qids = new Set();
+    (sec.questions || []).forEach(q => {
+      if (qids.has(q.id)) sorun.push(sec.id + ': tekrar soru id ' + q.id);
+      qids.add(q.id);
+      if (!q.label) sorun.push(sec.id + '.' + q.id + ': etiket yok');
+      if (tipler.indexOf(q.type) < 0) sorun.push(sec.id + '.' + q.id + ': geçersiz tip ' + q.type);
+      if ((q.type === 'select' || q.type === 'multi') && !(q.options || []).length) sorun.push(sec.id + '.' + q.id + ': seçenek yok');
+      if (q.type === 'table' && !(q.cols || []).length) sorun.push(sec.id + '.' + q.id + ': sütun yok');
+    });
+  }
+  Object.keys(S.Q).forEach(k => denetle(S.Q[k], 'core'));
+  Object.keys(S.CONDITIONAL).forEach(k => denetle(S.CONDITIONAL[k], 'cond'));
+  Object.keys(S.GENRES).forEach(k => (S.GENRES[k].sections || []).forEach(s => denetle(s, 'genre:' + k)));
+  Object.keys(S.Q).forEach(k => { if (S.CORE_ORDER.indexOf(k) < 0) sorun.push('CORE_ORDER eksik: ' + k); });
+  S.CORE_ORDER.forEach(k => { if (!S.Q[k]) sorun.push('CORE_ORDER fazla: ' + k); });
+  ok('Şemada yapısal hata yok', sorun.length === 0, sorun.slice(0, 3).join(' / '));
+  ok('18 tür tanımlı', Object.keys(S.GENRES).length === 18, Object.keys(S.GENRES).length + ' bulundu');
+  ok('11 çekirdek bölüm', Object.keys(S.Q).length === 11, Object.keys(S.Q).length + ' bulundu');
+})();
+
+/* ---------- 2. STORE ---------- */
+grp('Depolama / model');
+(() => {
+  const p = window.Store.create('Depo testi', 'puzzle', []);
+  ok('Proje oluşturuldu', !!p.id && p.sections.length > 0);
+  ok('Tür bölümü çekirdeğin ortasına girdi',
+     p.sections.findIndex(s => s.id === 'g_puzzle') === p.sections.findIndex(s => s.id === 'mechanics') + 1);
+  window.Store.setAnswer(p, 'identity', 'title', 'X');
+  ok('Cevap yazıldı', window.Store.getAnswer(p, 'identity', 'title') === 'X');
+  window.Store.setAnswer(p, 'identity', 'title', '');
+  ok('Boş cevap silindi', window.Store.getAnswer(p, 'identity', 'title') === undefined);
+  window.Store.setAnswer(p, 'vision', 'refs', [['', '', '']]);
+  ok('Boş tablo satırı sayılmadı', window.isEmptyVal(window.Store.getAnswer(p, 'vision', 'refs')) !== false ||
+     window.Store.stats(p).filled === 0);
+
+  const n0 = p.sections.length;
+  const sec = window.Store.addSection(p, 'Özel');
+  ok('Bölüm eklendi', p.sections.length === n0 + 1);
+  window.Store.addQuestion(p, sec.id, { label: 'Soru', type: 'textarea' });
+  ok('Soru eklendi', p.sections.find(s => s.id === sec.id).questions.length === 1);
+  window.Store.moveSection(p, p.sections.length - 1, 0);
+  ok('Bölüm taşındı', p.sections[0].id === sec.id);
+  window.Store.removeSection(p, sec.id);
+  ok('Bölüm silindi', p.sections.length === n0);
+
+  const eklenen = window.Store.attachModule(p, 'conditional', 'multiplayer');
+  ok('Koşullu modül eklendi', eklenen.length === 1 && p.sections.some(s => s.id === 'multiplayer'));
+  ok('Aynı modül iki kez eklenmiyor', window.Store.attachModule(p, 'conditional', 'multiplayer').length === 0);
+
+  window.Store.save(p);
+  ok('Kalıcı okundu', (window.Store.get(p.id) || {}).name === 'Depo testi');
+  window.Store.remove(p.id);
+  ok('Silindi', window.Store.get(p.id) === null);
+})();
+
+/* ---------- 3. ÇIKTILAR ---------- */
+grp('Çıktı üreticileri (18 tür)');
+(() => {
+  const tbl = document.createElement('table');
+  tbl.innerHTML = '<tr><th>Tür</th><th>Bölüm</th><th>MD</th><th>HTML</th><th>TXT</th><th>TOC</th></tr>';
+  let hepsi = true;
+  Object.keys(window.SCHEMA.GENRES).forEach(g => {
+    let satir;
+    try {
+      const p = demoProje(g, Object.keys(window.SCHEMA.CONDITIONAL));
+      const md = window.Exporters.toMarkdown(p, {});
+      const html = window.Exporters.toStandaloneHTML(p);
+      const txt = window.Exporters.toText(p);
+      window.Exporters.toBacklogCSV(p);
+      window.Exporters.toDocHTML(p, { toc: true });
+      const tocN = (md.split('## İçindekiler')[1] || '').split('\n---')[0].trim().split('\n').filter(x => x.trim()).length;
+      const bodyN = (md.match(/^## (?!İçindekiler)/gm) || []).length;
+      const tocOK = tocN === bodyN;
+      if (!tocOK) hepsi = false;
+      satir = '<tr><td>' + g + '</td><td>' + p.sections.length + '</td><td>' + md.length +
+              '</td><td>' + html.length + '</td><td>' + txt.length + '</td><td class="' +
+              (tocOK ? 'ok">✓' : 'fail">✗') + '</td></tr>';
+      window.Store.remove(p.id);
+    } catch (e) {
+      hepsi = false;
+      satir = '<tr><td>' + g + '</td><td colspan="5" class="fail">ÇÖKTÜ: ' + e.message + '</td></tr>';
+    }
+    tbl.insertAdjacentHTML('beforeend', satir);
+  });
+  out.appendChild(tbl);
+  ok('18 türün hepsi çıktı üretti, içindekiler gövdeyle eşleşti', hepsi);
+})();
+
+/* ---------- 4. KAÇIŞ VE GÜVENLİK ---------- */
+grp('Kaçış / güvenlik');
+(() => {
+  const p = demoProje('other', []);
+  window.Store.setAnswer(p, 'identity', 'title', '<img src=x onerror="alert(1)">');
+  window.Store.setAnswer(p, 'vision', 'hook', 'Tırnak "test" & <b>kalın</b>');
+  const html = window.Exporters.toStandaloneHTML(p);
+  ok('HTML çıktısı kaçışlı', html.indexOf('<img src=x') < 0 && html.indexOf('&lt;img src=x') > 0);
+  ok('& ve tırnak kaçışlı', html.indexOf('&amp;') > 0 && html.indexOf('&quot;test&quot;') > 0);
+
+  window.Store.setAnswer(p, 'vision', 'refs', [['A|B', 'C|D', 'E']]);
+  const md = window.Exporters.toMarkdown(p, {});
+  ok('Markdown tablo pipe kaçışı', md.indexOf('A\\|B') > 0);
+
+  window.Store.setAnswer(p, 'gameplay', 'verbs', ['=1+1', '+HYPERLINK("x")', '-2', '@SUM(A1)', 'Normal']);
+  const csv = window.Exporters.toBacklogCSV(p);
+  const riskli = [];
+  csv.split('\r\n').forEach(l => l.split(',').forEach(c => { if (/^[=+\-@]/.test(c)) riskli.push(c); }));
+  ok('CSV formül enjeksiyonu engellendi', riskli.length === 0, riskli.join(' '));
+  window.Store.remove(p.id);
+})();
+
+/* ---------- 5. TÜRKÇE ---------- */
+grp('Türkçe metin işleme');
+(() => {
+  ok('upperTR: i → İ', window.Exporters.upperTR('Karanlık Koridor') === 'KARANLIK KORİDOR', window.Exporters.upperTR('Karanlık Koridor'));
+  ok('slug: şapkalı harf', window.Exporters.slug('Hikâye & Dünya') === 'hikaye-dunya', window.Exporters.slug('Hikâye & Dünya'));
+  ok('slug: İ ve ı', window.Exporters.slug('İçindekiler') === 'icindekiler' && window.Exporters.slug('Oynanış') === 'oynanis');
+  ok('safeFile boş girdide çöküyor değil', window.Exporters.safeFile('') === 'gdd');
+})();
+
+/* ---------- 6. TUR-GİDİŞ-DÖNÜŞ ---------- */
+grp('JSON tur-gidiş-dönüş');
+(() => {
+  const p = demoProje('rpg', ['accessibility']);
+  const json = JSON.parse(JSON.stringify(p));
+  const p2 = window.Store.importProject(json);
+  const norm = s => s.replace(/\*\*Güncelleme:\*\*[^\n]*/, '');
+  ok('İçe aktarım kayıpsız', norm(window.Exporters.toMarkdown(p, {})) === norm(window.Exporters.toMarkdown(p2, {})));
+  ok('Yeni id atandı', p2.id !== p.id);
+  ok('Cevap sayısı korundu', Object.keys(p2.answers).length === Object.keys(p.answers).length);
+  let hata = '';
+  try { window.Store.importProject({ foo: 1 }); } catch (e) { hata = e.message; }
+  ok('Bozuk dosya reddedildi', hata.length > 0, 'hata fırlatmadı');
+  window.Store.remove(p.id); window.Store.remove(p2.id);
+})();
+
+/* ---------- 7. SINIR DURUMLARI ---------- */
+grp('Sınır durumları');
+(() => {
+  const p = window.Store.create('Boş', 'other', []);
+  ok('Boş projede md çökmüyor', typeof window.Exporters.toMarkdown(p, {}) === 'string');
+  ok('Boş projede html çökmüyor', window.Exporters.toStandaloneHTML(p).indexOf('</html>') > 0);
+  ok('Boş projede csv çökmüyor', typeof window.Exporters.toBacklogCSV(p) === 'string');
+  ok('Boş projede önizleme mesaj veriyor', window.Exporters.toDocHTML(p, {}).indexOf('Henüz içerik yok') > 0);
+
+  p.sections.forEach(s => s.enabled = false);
+  ok('Tüm bölümler gizliyken çökmüyor', typeof window.Exporters.toMarkdown(p, {}) === 'string');
+  p.sections.forEach(s => s.enabled = true);
+
+  window.Store.setAnswer(p, 'vision', 'fantasy', 'X'.repeat(100000));
+  ok('100k karakter işlendi', window.Exporters.toMarkdown(p, {}).length > 100000);
+
+  const bozuk = { id: 'x', name: 'B', genre: 'rpg', extras: [], createdAt: '', updatedAt: new Date().toISOString(),
+                  sections: [{ id: 's', title: 'T', enabled: true, questions: [{ id: 'q', label: 'L', type: 'table', cols: ['A','B'] }] }],
+                  answers: { 's.q': 'dizi değil, düz metin' } };
+  let cokti = false;
+  try { window.Exporters.toMarkdown(bozuk, {}); } catch (e) { cokti = true; }
+  ok('Bozuk cevap tipi çökertmiyor', !cokti);
+  window.Store.remove(p.id);
+})();
+
+/* ---------- 8. ALAN MOTORU ---------- */
+grp('Alan render motoru');
+(() => {
+  const tipler = ['text','textarea','select','multi','tags','list','table','number','scale'];
+  let hepsi = true, hatali = [];
+  tipler.forEach(t => {
+    try {
+      const q = { id: 'q', label: 'L', type: t, options: ['a','b'], cols: ['X','Y'] };
+      const node = window.Fields.renderField(q, undefined, () => {});
+      if (!node || !node.querySelector) { hepsi = false; hatali.push(t); }
+    } catch (e) { hepsi = false; hatali.push(t + ':' + e.message); }
+  });
+  ok('Tüm alan tipleri boş değerle render oluyor', hepsi, hatali.join(', '));
+
+  let cokti = false;
+  try {
+    window.Fields.renderField({ id:'q', label:'L', type:'table', cols:['A','B'] }, 'yanlış tip', () => {});
+    window.Fields.renderField({ id:'q', label:'L', type:'multi', options:['a'] }, 'dizi değil', () => {});
+    window.Fields.renderField({ id:'q', label:'L', type:'list' }, null, () => {});
+  } catch (e) { cokti = true; }
+  ok('Yanlış tipli veri normalize ediliyor', !cokti);
+})();
+
+/* ---------- ÖZET ---------- */
+localStorage.setItem('gddcreator.projects.v1', BACKUP === null ? '[]' : BACKUP);
+const s = document.createElement('div');
+s.className = 'sum ' + (fail === 0 ? 'ok' : 'fail');
+s.textContent = fail === 0 ? `TÜMÜ GEÇTİ — ${pass} test` : `${fail} BAŞARISIZ / ${pass + fail} test`;
+out.appendChild(s);
+window.__TEST = { pass, fail };
+</script>
+</body>
+</html>
