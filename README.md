@@ -55,14 +55,24 @@ python3 -m http.server 8477
 
 ---
 
-## Veri nerede duruyor
+## Hesap ve paylaşım
 
-Tarayıcının `localStorage`'ında (`gddcreator.projects.v1`). Yani:
+**Giriş yapmadan:** her şey tarayıcıda (`localStorage`). Sunucuya bir şey gitmez, internet gerekmez. Tarayıcı verilerini silersen projeler gider — JSON olarak dışa aktar.
 
-- **Sunucuya hiçbir şey gitmez**, internet gerekmez.
-- Aynı tarayıcı + aynı profil = projelerin durur.
-- **Tarayıcı verilerini silersen projeler gider.** Önemli projeleri JSON olarak dışa aktar — o dosya tam yedektir, "JSON içe aktar" ile geri yüklenir.
-- Başka bilgisayara taşımak da JSON ile olur.
+**Giriş yapınca:** projeler Supabase'de saklanır, her cihazdan erişilir. Yerelde proje varsa "hesabına taşı" diye sorar.
+
+**Davet:** Projeyi aç → **⇲ Paylaş** → e-posta + yetki. Kişi kayıtlıysa proje anında listesine düşer; değilse ilk girişinde otomatik eklenir.
+
+| | Sahip | Düzenleyen | İzleyen |
+|---|---|---|---|
+| Görüntüle / dışa aktar | ✓ | ✓ | ✓ |
+| Düzenle | ✓ | ✓ | — |
+| Davet et / yetki değiştir | ✓ | — | — |
+| Projeyi sil | ✓ | — | — |
+
+İzleyende alanlar gerçekten kilitli (readOnly + disabled) **ve** Postgres RLS sunucu tarafında da engeller — tarayıcıdan zorlansa bile yazamaz.
+
+Yayına alma adımları: `docs/YAYINA-ALMA.md`
 
 ---
 
@@ -81,18 +91,39 @@ gdd-creator/
 ├── index.html          uygulama kabuğu
 ├── css/app.css         tema, düzen, yazdırma ve dar ekran kuralları
 ├── js/
+│   ├── config.js       Supabase anahtarları (Vercel'de build.js üretir)
 │   ├── schema.js       SORULAR — 18 tür, 11 çekirdek bölüm, 5 ek modül (205 soru)
-│   ├── store.js        proje modeli + localStorage + bölüm/alan işlemleri
+│   ├── cloud.js        Supabase: auth, projeler, davetler, roller
+│   ├── store.js        proje modeli + localStorage/bulut + yazma kuyruğu
 │   ├── fields.js       9 alan tipini DOM'a çeviren render motoru
 │   ├── export.js       Markdown / HTML / TXT / CSV / PDF üreticileri
-│   └── app.js          ekranlar, yönlendirme, editör, dışa aktarma
-├── tests/test.html     38 regresyon testi — tarayıcıda aç, yeşil olmalı
-└── tools/              geliştirme araçları (CDP sürücü, PDF, ekran görüntüsü)
+│   └── app.js          ekranlar, yönlendirme, editör, paylaşım, dışa aktarma
+├── supabase/schema.sql veritabanı şeması + RLS politikaları
+├── tests/
+│   ├── test.html       38 yerel test
+│   ├── cloud-test.html 49 bulut testi (sahte sunucu, RLS taklidi)
+│   └── ui-demo.html    arayüzü sahte sunucuyla sürmek için
+└── tools/              geliştirme araçları (CDP sürücü, RLS testi, şema kurulumu)
 ```
 
 ## Testler
 
-`tests/test.html` dosyasını tarayıcıda aç. Şema bütünlüğü, depolama, 18 türün tamamının çıktı üretimi, HTML/Markdown/CSV kaçışları, Türkçe büyük harf ve slug, JSON tur-gidiş-dönüş, sınır durumları ve alan motoru test edilir. Testler gerçek projelerini **kirletmez** (başta yedekler, sonunda geri yükler).
+Üç katman, toplam 111 test:
+
+```bash
+# 1. Yerel mantık (38 test) — tarayıcıda aç
+tests/test.html
+
+# 2. Bulut mantığı (49 test) — sahte Supabase, RLS taklidi dahil
+tests/cloud-test.html
+
+# 3. Gerçek RLS (24 test) — asıl güvenlik sınırı, canlı sunucuda
+SUPABASE_PAT=sbp_... python3 tools/rls_test.py
+```
+
+Tarayıcı testleri gerçek projelerini **kirletmez** (başta `localStorage`'ı yedekler, sonunda geri yükler). RLS testi kendi test kullanıcılarını kullanır; `tools/temizle.py` artıkları siler.
+
+Sahte sunucu testleri istemci mantığını doğrular, gerçek RLS testi asıl güvenlik sınırını. İkisi de gerekli: sahte sunucu bir keresinde nesneyi referansla paylaştığı için gerçek bir istemci hatasını gizlemişti — bu yüzden artık ağ gibi JSON kopyası döndürüyor.
 
 ## Yeni tür eklemek
 
