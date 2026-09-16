@@ -114,14 +114,133 @@ const App = {
       kisi.addEventListener('click', () => this.hesapModal());
       bar.appendChild(kisi);
     } else {
-      const g = el('button', 'btn sm primary', 'Google ile giriş');
-      g.addEventListener('click', async () => {
-        g.disabled = true; g.textContent = 'Yönlendiriliyor…';
-        try { await window.Cloud.signInWithGoogle(); }
-        catch (e) { g.disabled = false; g.textContent = 'Google ile giriş'; alert('Giriş başarısız: ' + e.message); }
-      });
+      const g = el('button', 'btn sm primary', 'Giriş yap');
+      g.addEventListener('click', () => this.girisModal());
       bar.appendChild(g);
     }
+  },
+
+  /* Giriş / kayıt penceresi */
+  girisModal(kip) {
+    kip = kip || 'giris';                       // 'giris' | 'kayit' | 'sifirla'
+    const baslik = { giris: 'Giriş yap', kayit: 'Hesap oluştur', sifirla: 'Şifre sıfırla' };
+    const { bg, body, foot } = this.modal(baslik[kip]);
+
+    const hata = el('div', 'auth-err');
+    hata.style.display = 'none';
+    body.appendChild(hata);
+    const goster = m => { hata.textContent = m; hata.style.display = 'block'; };
+
+    // Google — yalnızca sağlayıcı yapılandırılmışsa anlamlı.
+    // Yapılandırılmamışsa Supabase 400 döner; kullanıcıya açık mesaj veriyoruz.
+    const gbtn = el('button', 'btn wide', 'Google ile devam et');
+    gbtn.addEventListener('click', async () => {
+      gbtn.disabled = true; gbtn.textContent = 'Yönlendiriliyor…';
+      try { await window.Cloud.signInWithGoogle(); }
+      catch (e) {
+        gbtn.disabled = false; gbtn.textContent = 'Google ile devam et';
+        goster(/provider/i.test(e.message || '')
+          ? 'Google girişi henüz açık değil — e-posta ile devam et.'
+          : 'Google girişi başarısız: ' + e.message);
+      }
+    });
+    body.appendChild(gbtn);
+    body.appendChild(el('div', 'auth-ayrac', 'ya da'));
+
+    const fMail = el('div', 'field');
+    fMail.appendChild(Object.assign(el('label', 'flabel'), { textContent: 'E-posta' }));
+    const iMail = el('input'); iMail.type = 'email'; iMail.placeholder = 'sen@ornek.com';
+    iMail.autocomplete = 'email';
+    fMail.appendChild(iMail); body.appendChild(fMail);
+
+    let iSifre = null, iAd = null;
+    if (kip !== 'sifirla') {
+      if (kip === 'kayit') {
+        const fAd = el('div', 'field');
+        fAd.appendChild(Object.assign(el('label', 'flabel'), { textContent: 'Adın' }));
+        iAd = el('input'); iAd.type = 'text'; iAd.placeholder = 'Görünecek isim';
+        fAd.appendChild(iAd); body.appendChild(fAd);
+      }
+      const fSifre = el('div', 'field');
+      fSifre.appendChild(Object.assign(el('label', 'flabel'), { textContent: 'Şifre' }));
+      iSifre = el('input'); iSifre.type = 'password';
+      iSifre.autocomplete = kip === 'kayit' ? 'new-password' : 'current-password';
+      iSifre.placeholder = kip === 'kayit' ? 'En az 6 karakter' : '';
+      fSifre.appendChild(iSifre); body.appendChild(fSifre);
+    }
+
+    const alt = el('div', 'auth-alt');
+    if (kip === 'giris') {
+      const k = el('button', 'lnk', 'Hesabın yok mu? Oluştur');
+      k.addEventListener('click', () => { bg.remove(); this.girisModal('kayit'); });
+      const u = el('button', 'lnk', 'Şifremi unuttum');
+      u.addEventListener('click', () => { bg.remove(); this.girisModal('sifirla'); });
+      alt.appendChild(k); alt.appendChild(u);
+    } else {
+      const g2 = el('button', 'lnk', '← Girişe dön');
+      g2.addEventListener('click', () => { bg.remove(); this.girisModal('giris'); });
+      alt.appendChild(g2);
+    }
+    body.appendChild(alt);
+
+    const vazgec = el('button', 'btn', 'Vazgeç');
+    vazgec.addEventListener('click', () => bg.remove());
+    const onay = el('button', 'btn primary',
+      kip === 'kayit' ? 'Hesap oluştur' : (kip === 'sifirla' ? 'Sıfırlama bağlantısı gönder' : 'Giriş yap'));
+
+    onay.addEventListener('click', async () => {
+      const mail = iMail.value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) { goster('Geçerli bir e-posta yaz.'); iMail.focus(); return; }
+      if (kip !== 'sifirla' && (!iSifre.value || iSifre.value.length < 6)) {
+        goster('Şifre en az 6 karakter olmalı.'); iSifre.focus(); return;
+      }
+      onay.disabled = true; const eski = onay.textContent; onay.textContent = '…';
+      try {
+        if (kip === 'kayit') {
+          const r = await window.Cloud.signUpWithEmail(mail, iSifre.value, iAd ? iAd.value.trim() : '');
+          bg.remove();
+          if (r.dogrulamaGerekli) {
+            this.bilgiModal('E-postanı doğrula',
+              mail + ' adresine bir doğrulama bağlantısı gönderdik. Bağlantıya tıkladıktan sonra giriş yapabilirsin.');
+          } else {
+            this.toast('Hoş geldin!');
+          }
+        } else if (kip === 'sifirla') {
+          await window.Cloud.resetPassword(mail);
+          bg.remove();
+          this.bilgiModal('Bağlantı gönderildi',
+            mail + ' adresine şifre sıfırlama bağlantısı gönderdik.');
+        } else {
+          await window.Cloud.signInWithEmail(mail, iSifre.value);
+          bg.remove();
+          this.toast('Giriş yapıldı');
+        }
+      } catch (e) {
+        onay.disabled = false; onay.textContent = eski;
+        const m = (e.message || '').toLowerCase();
+        if (m.includes('invalid login')) goster('E-posta ya da şifre hatalı.');
+        else if (m.includes('already registered') || m.includes('already been registered'))
+          goster('Bu e-posta zaten kayıtlı — giriş yapmayı dene.');
+        else if (m.includes('email not confirmed')) goster('Önce e-postandaki doğrulama bağlantısına tıkla.');
+        else if (m.includes('signups not allowed')) goster('Kayıtlar şu an kapalı.');
+        else goster(e.message || 'Bir şeyler ters gitti.');
+      }
+    });
+
+    [iMail, iSifre, iAd].forEach(n => {
+      if (n) n.addEventListener('keydown', e => { if (e.key === 'Enter') onay.click(); });
+    });
+
+    foot.appendChild(vazgec); foot.appendChild(onay);
+    setTimeout(() => iMail.focus(), 40);
+  },
+
+  bilgiModal(baslik, metin) {
+    const { bg, body, foot } = this.modal(baslik);
+    body.appendChild(el('div', 'fhint', metin));
+    const k = el('button', 'btn primary', 'Tamam');
+    k.addEventListener('click', () => bg.remove());
+    foot.appendChild(k);
   },
 
   renderSyncBadge(durum, hata) {

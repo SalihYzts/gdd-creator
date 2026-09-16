@@ -98,9 +98,12 @@ drop policy if exists "kendi profilini guncelle" on public.profiles;
 create policy "kendi profilini guncelle" on public.profiles for update using (auth.uid() = id);
 
 -- projects
+-- NOT: owner_id kontrolu politikada DOGRUDAN yapilir. Yalnizca stable fonksiyona
+-- birakilirsa, INSERT ... RETURNING sirasinda ifade kendi yazdigi satiri goremez
+-- (statement snapshot eski kalir) ve 42501 hatasi alinir. Ayrica bu kisa devre hizlidir.
 drop policy if exists "erisimi olan okur" on public.projects;
 create policy "erisimi olan okur" on public.projects for select
-  using (public.has_project_access(id, auth.uid()));
+  using (owner_id = auth.uid() or public.has_project_access(id, auth.uid()));
 
 drop policy if exists "kendi projesini olusturur" on public.projects;
 create policy "kendi projesini olusturur" on public.projects for insert
@@ -108,7 +111,8 @@ create policy "kendi projesini olusturur" on public.projects for insert
 
 drop policy if exists "duzenleyen guncelller" on public.projects;
 create policy "duzenleyen guncelller" on public.projects for update
-  using (public.can_edit_project(id, auth.uid()));
+  using (owner_id = auth.uid() or public.can_edit_project(id, auth.uid()))
+  with check (owner_id = auth.uid() or public.can_edit_project(id, auth.uid()));
 
 drop policy if exists "sahibi siler" on public.projects;
 create policy "sahibi siler" on public.projects for delete
@@ -117,7 +121,7 @@ create policy "sahibi siler" on public.projects for delete
 -- project_members
 drop policy if exists "uyeleri gor" on public.project_members;
 create policy "uyeleri gor" on public.project_members for select
-  using (public.has_project_access(project_id, auth.uid()));
+  using (user_id = auth.uid() or public.has_project_access(project_id, auth.uid()));
 
 drop policy if exists "sahibi uye ekler" on public.project_members;
 create policy "sahibi uye ekler" on public.project_members for insert
@@ -135,7 +139,8 @@ create policy "sahibi rol degistirir" on public.project_members for update
 drop policy if exists "davetleri gor" on public.invites;
 create policy "davetleri gor" on public.invites for select
   using (
-    public.has_project_access(project_id, auth.uid())
+    invited_by = auth.uid()
+    or public.has_project_access(project_id, auth.uid())
     or lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
   );
 
@@ -206,8 +211,14 @@ create trigger on_project_updated
 
 -- ============ DAVET KABULÜ ============
 -- Kullanıcı giriş yaptığında çağrılır: e-postasına gelen bekleyen davetleri üyeliğe çevirir.
+-- Donus tipi degistigi icin once dusurulmeli: create or replace, RETURNS TABLE
+-- sutun adlarini degistirmeye izin vermez (42P13).
+drop function if exists public.accept_my_invites();
+
+-- NOT: cikis parametreleri out_ onekli. Duz 'project_id/role' kullanilirsa
+-- CTE icindeki ayni adli sutunlarla cakisir: 42702 "column reference is ambiguous".
 create or replace function public.accept_my_invites()
-returns table (project_id uuid, role text)
+returns table (out_project_id uuid, out_role text)
 language plpgsql security definer set search_path = public as $$
 declare
   my_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
@@ -221,14 +232,14 @@ begin
        set accepted_at = now()
      where lower(i.email) = my_email
        and i.accepted_at is null
-    returning i.project_id, i.role
+    returning i.project_id as pid, i.role as rol
   ), uyelik as (
     insert into public.project_members (project_id, user_id, role)
-    select k.project_id, my_id, k.role from kabul k
+    select k.pid, my_id, k.rol from kabul k
     on conflict (project_id, user_id) do update set role = excluded.role
-    returning project_members.project_id, project_members.role
+    returning public.project_members.project_id as pid, public.project_members.role as rol
   )
-  select u.project_id, u.role from uyelik u;
+  select u.pid, u.rol from uyelik u;
 end; $$;
 
 -- Proje sahibinin üyeleri e-postasıyla birlikte listelemesi

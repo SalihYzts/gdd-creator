@@ -7,14 +7,21 @@ PORT = 9222
 _id = [0]
 
 def page_ws(match="8477"):
+    """match dizesini URL'sinde taşıyan sekmeyi bulur.
+
+    DİKKAT: birden çok sekme açıkken 'ilk eşleşen' yanlış sekme olabilir.
+    Testlerde match'i dosya adına kadar özelleştir ('tests/ui-demo.html' gibi).
+    """
     with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json") as r:
-        targets = json.load(r)
-    for t in targets:
-        if t.get("type") == "page" and match in t.get("url", ""):
-            return t["webSocketDebuggerUrl"]
-    for t in targets:
-        if t.get("type") == "page":
-            return t["webSocketDebuggerUrl"]
+        targets = [t for t in json.load(r) if t.get("type") == "page"]
+    eslesen = [t for t in targets if match in t.get("url", "")]
+    if len(eslesen) > 1:
+        print(f"# uyarı: {len(eslesen)} sekme '{match}' ile eşleşti, ilki kullanılıyor: "
+              + " | ".join(t.get("url", "")[:60] for t in eslesen), file=sys.stderr)
+    if eslesen:
+        return eslesen[0]["webSocketDebuggerUrl"]
+    if targets:
+        return targets[0]["webSocketDebuggerUrl"]
     raise RuntimeError("sayfa yok")
 
 async def _send(ws, method, **params):

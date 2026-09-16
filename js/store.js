@@ -297,6 +297,7 @@ const Store = {
 
   /* ---- Bölüm işlemleri ---- */
   addSection(project, title) {
+    if (!this.canEdit(project)) return null;
     const sec = {
       id: uid('sec'), title: title || 'Yeni Bölüm', desc: '',
       origin: 'custom', enabled: true, questions: []
@@ -306,6 +307,7 @@ const Store = {
   },
 
   removeSection(project, secId) {
+    if (!this.canEdit(project)) return;
     const i = project.sections.findIndex(s => s.id === secId);
     if (i < 0) return;
     project.sections[i].questions.forEach(q => { delete project.answers[secId + '.' + q.id]; });
@@ -313,12 +315,14 @@ const Store = {
   },
 
   moveSection(project, from, to) {
+    if (!this.canEdit(project)) return;
     if (to < 0 || to >= project.sections.length) return;
     const [s] = project.sections.splice(from, 1);
     project.sections.splice(to, 0, s);
   },
 
   addQuestion(project, secId, q) {
+    if (!this.canEdit(project)) return null;
     const sec = project.sections.find(s => s.id === secId);
     if (!sec) return null;
     const nq = {
@@ -331,6 +335,7 @@ const Store = {
   },
 
   removeQuestion(project, secId, qid) {
+    if (!this.canEdit(project)) return;
     const sec = project.sections.find(s => s.id === secId);
     if (!sec) return;
     sec.questions = sec.questions.filter(q => q.id !== qid);
@@ -338,6 +343,7 @@ const Store = {
   },
 
   moveQuestion(project, secId, from, to) {
+    if (!this.canEdit(project)) return;
     const sec = project.sections.find(s => s.id === secId);
     if (!sec || to < 0 || to >= sec.questions.length) return;
     const [q] = sec.questions.splice(from, 1);
@@ -345,6 +351,7 @@ const Store = {
   },
 
   attachModule(project, kind, key) {
+    if (!this.canEdit(project)) return [];
     const S = window.SCHEMA;
     let secs = [];
     if (kind === 'genre' && S.GENRES[key]) secs = S.GENRES[key].sections.map(s => materialize(s, 'genre'));
@@ -365,10 +372,14 @@ const Store = {
   getAnswer(project, secId, qid) { return project.answers[secId + '.' + qid]; },
 
   setAnswer(project, secId, qid, val) {
+    // Salt okunur projelerde belleği bile kirletme: kullanıcı yazdığını sanıp
+    // sayfa yenilendiğinde kaybolmasın. Sunucu tarafında RLS zaten engeller.
+    if (!this.canEdit(project)) return false;
     const k = secId + '.' + qid;
     const empty = val === '' || val === null || val === undefined ||
                   (Array.isArray(val) && val.length === 0);
     if (empty) delete project.answers[k]; else project.answers[k] = val;
+    return true;
   },
 
   stats(project) {

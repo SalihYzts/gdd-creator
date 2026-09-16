@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GDD Creator — Demo (sahte sunucu)</title>
+<link rel="stylesheet" href="../css/app.css">
+</head>
+<body>
+<div id="app">
+  <div class="topbar noprint">
+    <a class="brand" href="#home">GDD<b>·</b>CREATOR</a>
+    <div class="crumb" id="crumb"></div>
+    <div class="spacer"></div>
+    <div id="toolbar" style="display:flex;gap:8px;align-items:center"></div>
+    <div id="authbar"></div>
+  </div>
+  <div class="screen active" id="sc-home"></div>
+  <div class="screen" id="sc-wizard"></div>
+  <div class="screen" id="sc-editor"></div>
+</div>
+
+<!-- Sahte Supabase: cloud-test.html ile aynı motor, arayüzü sürebilmek için -->
+<script src="fake-supabase.js"></script>
+<script src="../js/schema.js"></script>
+<script src="../js/cloud.js"></script>
+<script src="../js/store.js"></script>
+<script src="../js/fields.js"></script>
+<script src="../js/export.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

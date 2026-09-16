@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>GDD Creator — Bulut Testi</title>
+<style>
+  body{background:#0a0a0a;color:#e8e8e8;font:13px/1.6 ui-monospace,monospace;padding:20px;margin:0}
+  h1{font-size:16px;letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid #262626;padding-bottom:8px}
+  .ok{color:#3ddc84} .fail{color:#ff2d2d}
+  .grp{color:#8a8a8a;margin-top:14px;text-transform:uppercase;letter-spacing:.1em;font-size:11px}
+  .row{padding:1px 0}
+  .sum{margin-top:18px;padding-top:10px;border-top:1px solid #262626;font-size:14px}
+</style>
+</head>
+<body>
+<h1>Bulut Katmanı — Sahte Sunucu Testleri</h1>
+<div id="out"></div>
+
+<script src="fake-supabase.js"></script>
+
+<script src="../js/cloud.js"></script>
+<script src="../js/schema.js"></script>
+<script src="../js/store.js"></script>
+<script src="../js/fields.js"></script>
+<script src="../js/export.js"></script>
+
+<script>
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+function grp(t) { const d = document.createElement('div'); d.className = 'grp'; d.textContent = t; out.appendChild(d); }
+function ok(name, cond, detay) {
+  const d = document.createElement('div');
+  d.className = 'row ' + (cond ? 'ok' : 'fail');
+  d.textContent = (cond ? '  ✓ ' : '  ✗ ') + name + (cond ? '' : '  → ' + (detay || ''));
+  out.appendChild(d);
+  cond ? pass++ : fail++;
+}
+const bekle = ms => new Promise(r => setTimeout(r, ms));
+
+(async function () {
+  const YEDEK = localStorage.getItem('gddcreator.projects.v1');
+  localStorage.setItem('gddcreator.projects.v1', '[]');
+
+  grp('Başlatma');
+  ok('Cloud.enabled', window.Cloud.enabled);
+  await window.Cloud.init();
+  ok('Giriş yapılmamışken signedIn=false', !window.Cloud.signedIn);
+  ok('Store yerel kipte başlar', window.Store.mode === 'local');
+
+  grp('Giriş ve bulut kipi');
+  window.girisYap('u1', 'salih@ornek.com');
+  await bekle(60);
+  ok('Giriş algılandı', window.Cloud.signedIn && window.Cloud.user.id === 'u1');
+  await window.Store.useCloud();
+  ok('Store bulut kipine geçti', window.Store.mode === 'cloud');
+  ok('Boş hesapta proje yok', window.Store.list().length === 0);
+
+  grp('Proje oluşturma ve senkron');
+  const p1 = window.Store.create('Bulut Projesi', 'roguelike', []);
+  ok('Proje oluştu ve uuid aldı', !!p1.id && p1.cloud === true && p1.role === 'owner');
+  await bekle(120);
+  ok('Sunucuya yazıldı', __DB.projects.length === 1, __DB.projects.length + ' satır');
+  ok('Sahibi otomatik üye oldu (tetikleyici)',
+     __DB.members.some(m => m.project_id === p1.id && m.user_id === 'u1' && m.role === 'owner'));
+
+  window.Store.setAnswer(p1, 'identity', 'title', 'Test Oyunu');
+  window.Store.save(p1);
+  ok('Yazma kuyruğa alındı', window.Store.Sync.durum === 'yazılıyor');
+  ok('Önbellek anında güncellendi', window.Store.get(p1.id).answers['identity.title'] === 'Test Oyunu');
+  await bekle(1500);
+  ok('Kuyruk sunucuya gitti', window.Store.Sync.durum === 'kaydedildi', window.Store.Sync.durum);
+  ok('Sunucuda veri doğru',
+     __DB.projects[0].data.answers['identity.title'] === 'Test Oyunu');
+
+  grp('Hızlı ardışık yazmalar (tuş vuruşu benzetimi)');
+  const oncekiYazma = __DB.projects[0].updated_at;
+  for (let i = 0; i < 20; i++) {
+    window.Store.setAnswer(p1, 'vision', 'hook', 'sürüm ' + i);
+    window.Store.save(p1);
+    await bekle(15);
+  }
+  ok('20 yazma tek kuyruğa toplandı', window.Store.Sync.durum === 'yazılıyor');
+  await bekle(1500);
+  ok('Son değer sunucuda', __DB.projects[0].data.answers['vision.hook'] === 'sürüm 19',
+     __DB.projects[0].data.answers['vision.hook']);
+
+  grp('Davet: kayıtlı olmayan kullanıcı');
+  const r1 = await window.Cloud.invite(p1.id, 'talha@ornek.com', 'editor');
+  ok('Davet kaydedildi', r1.durum === 'davet edildi', JSON.stringify(r1));
+  ok('invites tablosunda bekliyor',
+     __DB.invites.some(i => i.email === 'talha@ornek.com' && !i.accepted_at));
+  let uyeler = await window.Cloud.members(p1.id);
+  ok('Üye listesinde "bekliyor" görünüyor',
+     uyeler.some(m => m.email === 'talha@ornek.com' && m.pending === true));
+
+  grp('Davet edilen giriş yapıyor');
+  window.girisYap('u2', 'talha@ornek.com');
+  await bekle(120);
+  ok('Davet otomatik kabul edildi',
+     __DB.invites.find(i => i.email === 'talha@ornek.com').accepted_at !== null);
+  ok('Üyelik oluştu',
+     __DB.members.some(m => m.project_id === p1.id && m.user_id === 'u2' && m.role === 'editor'));
+  await window.Store.useCloud();
+  const liste2 = window.Store.list();
+  ok('Paylaşılan proje listede', liste2.length === 1 && liste2[0].id === p1.id);
+  ok('Rol editor olarak geldi', liste2[0].role === 'editor', liste2[0].role);
+  ok('canEdit: editör düzenleyebilir', window.Store.canEdit(liste2[0]));
+  ok('isOwner: editör sahip değil', !window.Store.isOwner(liste2[0]));
+
+  grp('Editör düzenliyor');
+  const pe = liste2[0];
+  window.Store.setAnswer(pe, 'vision', 'fantasy', 'editörden geldi');
+  window.Store.save(pe);
+  await bekle(1500);
+  ok('Editörün yazması sunucuya geçti',
+     __DB.projects[0].data.answers['vision.fantasy'] === 'editörden geldi',
+     window.Store.Sync.hata || '');
+
+  grp('İzleyen rolü');
+  window.girisYap('u1', 'salih@ornek.com');
+  await bekle(80);
+  await window.Cloud.setRole(p1.id, 'u2', 'viewer');
+  ok('Rol viewer yapıldı', __DB.members.find(m => m.user_id === 'u2').role === 'viewer');
+
+  window.girisYap('u2', 'talha@ornek.com');
+  await bekle(120);
+  await window.Store.useCloud();
+  const pv = window.Store.list()[0];
+  ok('İzleyen rolü okundu', pv.role === 'viewer', pv.role);
+  ok('canEdit: izleyen düzenleyemez', !window.Store.canEdit(pv));
+
+  const oncekiDeger = __DB.projects[0].data.answers['vision.fantasy'];
+  const yazildiMi = window.Store.setAnswer(pv, 'vision', 'fantasy', 'izleyen yazmaya çalıştı');
+  window.Store.save(pv);
+  await bekle(1500);
+  ok('setAnswer false döndü', yazildiMi === false, 'dönen: ' + yazildiMi);
+  ok('İzleyenin yazması BELLEKTE de engellendi',
+     !JSON.stringify(pv.answers).includes('izleyen yazmaya'),
+     'bellek kirlendi — kullanıcı yazdığını sanır, yenileyince kaybolur');
+  ok('İzleyenin yazması ENGELLENDİ (istemci)',
+     __DB.projects[0].data.answers['vision.fantasy'] === oncekiDeger,
+     'sunucuda: ' + __DB.projects[0].data.answers['vision.fantasy']);
+  ok('İzleyen bölüm ekleyemiyor', window.Store.addSection(pv, 'Zorla') === null);
+  ok('İzleyen modül ekleyemiyor', window.Store.attachModule(pv, 'conditional', 'multiplayer').length === 0);
+  const bolumSayisi = pv.sections.length;
+  window.Store.removeSection(pv, pv.sections[0].id);
+  ok('İzleyen bölüm silemiyor', pv.sections.length === bolumSayisi);
+
+  // Sunucu tarafı da engellemeli — istemciyi atlayıp doğrudan dene
+  const r2 = await window.Cloud.save({ id: p1.id, role: 'editor', name: 'zorla', genre: 'x',
+                                       sections: [], answers: { 'x.y': 'zorla' } }).catch(e => ({ hata: e.message }));
+  ok('İzleyenin yazması ENGELLENDİ (sunucu/RLS)',
+     !!r2.hata || __DB.projects[0].data.answers['x.y'] === undefined,
+     JSON.stringify(r2));
+
+  grp('İzleyen davet edemez');
+  const r3 = await window.Cloud.invite(p1.id, 'baska@ornek.com', 'editor').catch(e => ({ hata: e.message }));
+  ok('Davet reddedildi', !!r3.hata, JSON.stringify(r3));
+
+  grp('Davet: zaten kayıtlı kullanıcı');
+  window.girisYap('u3', 'ayse@ornek.com');
+  await bekle(60);
+  window.girisYap('u1', 'salih@ornek.com');
+  await bekle(80);
+  const r4 = await window.Cloud.invite(p1.id, 'ayse@ornek.com', 'viewer');
+  ok('Anında eklendi', r4.durum === 'eklendi', JSON.stringify(r4));
+  ok('Üyelik hemen oluştu',
+     __DB.members.some(m => m.user_id === 'u3' && m.role === 'viewer'));
+
+  grp('Kendini davet etme');
+  const r5 = await window.Cloud.invite(p1.id, 'salih@ornek.com', 'editor').catch(e => ({ hata: e.message }));
+  ok('Reddedildi', !!r5.hata, JSON.stringify(r5));
+  const r6 = await window.Cloud.invite(p1.id, 'bozukmail', 'editor').catch(e => ({ hata: e.message }));
+  ok('Geçersiz e-posta reddedildi', !!r6.hata, JSON.stringify(r6));
+
+  grp('Üye çıkarma');
+  await window.Cloud.removeMember(p1.id, 'u3');
+  ok('Üye çıkarıldı', !__DB.members.some(m => m.user_id === 'u3'));
+
+  grp('Yerelden buluta taşıma');
+  const yerel = [
+    { id: 'gdd_local1', name: 'Yerel A', genre: 'puzzle', extras: [], sections: [{ id: 's', title: 'T', enabled: true, questions: [] }], answers: { 'a.b': 'değer' }, createdAt: '', updatedAt: '' },
+    { id: 'gdd_local2', name: 'Yerel B', genre: 'rpg', extras: [], sections: [], answers: {}, createdAt: '', updatedAt: '' }
+  ];
+  const oncekiSayi = __DB.projects.length;
+  const tasima = await window.Cloud.migrateLocal(yerel);
+  ok('İki proje taşındı', tasima.filter(t => t.ok).length === 2, JSON.stringify(tasima));
+  ok('Sunucuda arttı', __DB.projects.length === oncekiSayi + 2);
+  ok('Yeni uuid atandı', tasima[0].id !== 'gdd_local1' && /^[0-9a-f-]{36}$/.test(tasima[0].id), tasima[0].id);
+  ok('Cevaplar korundu',
+     __DB.projects.find(p => p.id === tasima[0].id).data.answers['a.b'] === 'değer');
+
+  grp('Proje silme');
+  const silinecek = tasima[1].id;
+  window.Store.remove(silinecek);
+  await bekle(120);
+  ok('Sunucudan silindi', !__DB.projects.some(p => p.id === silinecek));
+
+  grp('Başkasının projesini silememe');
+  window.girisYap('u2', 'talha@ornek.com');
+  await bekle(80);
+  const r7 = await window.Cloud.remove(p1.id).catch(e => ({ hata: e.message }));
+  ok('Silme reddedildi', !!r7.hata || __DB.projects.some(p => p.id === p1.id), JSON.stringify(r7));
+
+  grp('Çıkış');
+  await window.Cloud.signOut();
+  await bekle(80);
+  ok('Oturum kapandı', !window.Cloud.signedIn);
+  window.Store.useLocal();
+  ok('Yerel kipe döndü', window.Store.mode === 'local');
+
+  localStorage.setItem('gddcreator.projects.v1', YEDEK === null ? '[]' : YEDEK);
+  const s = document.createElement('div');
+  s.className = 'sum ' + (fail === 0 ? 'ok' : 'fail');
+  s.textContent = fail === 0 ? `TÜMÜ GEÇTİ — ${pass} test` : `${fail} BAŞARISIZ / ${pass + fail} test`;
+  out.appendChild(s);
+  window.__CLOUDTEST = { pass, fail };
+})();
+</script>
+</body>
+</html>

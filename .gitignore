@@ -14,3 +14,7 @@ _yedek/
 # js/config.js şablon olarak depoda durur (boş değerlerle).
 # Gerçek anahtarları config.local.js'e koyarsan o gitmez:
 js/config.local.js
+
+# Yerel deneme sayfası (gerçek anahtarlarla çalışır)
+tests/canli.html
+tests/_*.js

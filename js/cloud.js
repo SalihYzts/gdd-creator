@@ -67,6 +67,39 @@ const Cloud = {
     if (error) throw error;
   },
 
+  /* E-posta + şifre ile kayıt.
+   * Supabase'de "Confirm email" açıksa oturum dönmez, doğrulama maili gider. */
+  async signUpWithEmail(email, password, fullName) {
+    if (!this.enabled) throw new Error('Bulut yapılandırılmamış');
+    const { data, error } = await sb.auth.signUp({
+      email: String(email).trim(),
+      password: password,
+      options: {
+        data: { full_name: fullName || String(email).split('@')[0] },
+        emailRedirectTo: location.origin + location.pathname
+      }
+    });
+    if (error) throw error;
+    return { session: data.session, dogrulamaGerekli: !data.session };
+  },
+
+  async signInWithEmail(email, password) {
+    if (!this.enabled) throw new Error('Bulut yapılandırılmamış');
+    const { data, error } = await sb.auth.signInWithPassword({
+      email: String(email).trim(), password: password
+    });
+    if (error) throw error;
+    return data.session;
+  },
+
+  async resetPassword(email) {
+    if (!this.enabled) throw new Error('Bulut yapılandırılmamış');
+    const { error } = await sb.auth.resetPasswordForEmail(String(email).trim(), {
+      redirectTo: location.origin + location.pathname
+    });
+    if (error) throw error;
+  },
+
   async signOut() {
     if (!sb) return;
     await sb.auth.signOut();
